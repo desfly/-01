@@ -1,0 +1,374 @@
+name: Build MiniBox firmware from ZIP
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: minibox-build-0104
+  cancel-in-progress: false
+
+env:
+  ARCHIVE: MiniBox-MFP-Firmware-Build-0104-AR9330-OPENWRT-25.12.5-CANDIDATE-BUILD-KIT.zip
+  EXPECTED_SHA256: 77974510f54a23dd633d5f451eac72cec432116bb01710a46bd0b8bb3f050381
+  OPENWRT_TAG: v25.12.5
+  OPENWRT_DIR: openwrt-src
+  DIST_DIR: dist
+
+jobs:
+  build:
+    name: OpenWrt 25.12.5 / MiniBox V1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Check ZIP and SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ ! -f "$ARCHIVE" ]; then
+            echo "ERROR: ZIP archive is missing from repository root:"
+            echo "$ARCHIVE"
+            echo
+            echo "Upload the ZIP to the main page of the repository."
+            exit 1
+          fi
+
+          echo "$EXPECTED_SHA256  $ARCHIVE" | sha256sum -c -
+
+      - name: Free disk space
+        shell: bash
+        run: |
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /opt/ghc || true
+          df -h
+
+      - name: Install OpenWrt build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update
+
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            clang \
+            flex \
+            bison \
+            g++ \
+            gawk \
+            gcc-multilib \
+            gettext \
+            git \
+            libelf-dev \
+            libncurses-dev \
+            libssl-dev \
+            python3 \
+            python3-setuptools \
+            rsync \
+            swig \
+            unzip \
+            zlib1g-dev \
+            file \
+            wget \
+            ca-certificates \
+            cmake \
+            ninja-build \
+            pkgconf \
+            jq \
+            xz-utils \
+            zstd
+
+      - name: Extract Build-0104 ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf extracted
+          mkdir -p extracted
+
+          unzip -q "$ARCHIVE" -d extracted
+
+          KIT_ROOT="$(find extracted -type f -name BUILD_INFO.md -printf '%h\n' | head -n 1)"
+
+          if [ -z "$KIT_ROOT" ]; then
+            KIT_ROOT="$(find extracted -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          fi
+
+          if [ -z "$KIT_ROOT" ]; then
+            echo "ERROR: Cannot determine Build-0104 root directory."
+            find extracted -maxdepth 4 -print
+            exit 1
+          fi
+
+          echo "KIT_ROOT=$KIT_ROOT" >> "$GITHUB_ENV"
+
+          echo "Build kit root:"
+          echo "$KIT_ROOT"
+
+          echo
+          echo "Archive contents:"
+          find "$KIT_ROOT" -maxdepth 4 -type f | sort | sed -n '1,250p'
+
+      - name: Clone pinned OpenWrt source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf "$OPENWRT_DIR"
+
+          git clone \
+            --depth 1 \
+            --branch "$OPENWRT_TAG" \
+            https://git.openwrt.org/openwrt/openwrt.git \
+            "$OPENWRT_DIR"
+
+          echo "Checked out OpenWrt version:"
+          git -C "$OPENWRT_DIR" describe --tags --exact-match
+
+      - name: Inject MiniBox target and package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ATH79_DIR="$(find "$KIT_ROOT" -type d -path '*/target/linux/ath79' | head -n 1)"
+
+          if [ -z "$ATH79_DIR" ]; then
+            echo "ERROR: target/linux/ath79 was not found inside Build-0104."
+            find "$KIT_ROOT" -maxdepth 6 -type d | sort
+            exit 1
+          fi
+
+          OVERLAY_ROOT="${ATH79_DIR%/target/linux/ath79}"
+
+          echo "OpenWrt overlay root:"
+          echo "$OVERLAY_ROOT"
+
+          rsync -a \
+            "$OVERLAY_ROOT/target/" \
+            "$OPENWRT_DIR/target/"
+
+          if [ -d "$OVERLAY_ROOT/package" ]; then
+            rsync -a \
+              "$OVERLAY_ROOT/package/" \
+              "$OPENWRT_DIR/package/"
+          fi
+
+          PACKAGE_DIR="$(find "$KIT_ROOT" -type d -path '*/package/minibox-mfp' | head -n 1)"
+
+          if [ -n "$PACKAGE_DIR" ]; then
+            rm -rf "$OPENWRT_DIR/package/minibox-mfp"
+            cp -a \
+              "$PACKAGE_DIR" \
+              "$OPENWRT_DIR/package/minibox-mfp"
+          fi
+
+          if [ -d "$OVERLAY_ROOT/files" ]; then
+            mkdir -p "$OPENWRT_DIR/files"
+
+            rsync -a \
+              "$OVERLAY_ROOT/files/" \
+              "$OPENWRT_DIR/files/"
+          fi
+
+          if ! grep -Rqs \
+            "gainstrong_minibox-v1" \
+            "$OPENWRT_DIR/target/linux/ath79"; then
+            echo "ERROR: gainstrong_minibox-v1 profile was not injected."
+            exit 1
+          fi
+
+          if [ ! -f "$OPENWRT_DIR/package/minibox-mfp/Makefile" ]; then
+            echo "ERROR: package/minibox-mfp/Makefile was not injected."
+            exit 1
+          fi
+
+          echo "MiniBox target and package injection: PASS"
+
+      - name: Configure OpenWrt
+        shell: bash
+        working-directory: openwrt-src
+        run: |
+          set -euo pipefail
+
+          cat > .config <<'EOF'
+          CONFIG_TARGET_ath79=y
+          CONFIG_TARGET_ath79_generic=y
+          CONFIG_TARGET_ath79_generic_DEVICE_gainstrong_minibox-v1=y
+
+          CONFIG_TARGET_ROOTFS_SQUASHFS=y
+          CONFIG_TARGET_ROOTFS_INITRAMFS=y
+          CONFIG_TARGET_INITRAMFS_COMPRESSION_LZMA=y
+
+          CONFIG_PACKAGE_minibox-mfp=y
+          CONFIG_PACKAGE_libusb-1.0=y
+          CONFIG_PACKAGE_kmod-usb2=y
+          CONFIG_PACKAGE_ubus=y
+          CONFIG_PACKAGE_uci=y
+          CONFIG_PACKAGE_uhttpd=y
+
+          # CONFIG_PACKAGE_kmod-usb-printer is not set
+          EOF
+
+          make defconfig
+
+          echo "Selected configuration:"
+          grep -E \
+            'CONFIG_TARGET_ath79|gainstrong_minibox|CONFIG_PACKAGE_minibox-mfp|CONFIG_TARGET_ROOTFS_INITRAMFS|CONFIG_PACKAGE_libusb' \
+            .config
+
+          if ! grep -q \
+            '^CONFIG_TARGET_ath79_generic_DEVICE_gainstrong_minibox-v1=y' \
+            .config; then
+            echo "ERROR: MiniBox target is not selected."
+            exit 1
+          fi
+
+          if ! grep -q \
+            '^CONFIG_PACKAGE_minibox-mfp=y' \
+            .config; then
+            echo "ERROR: MiniBox-MFP package is not selected."
+            exit 1
+          fi
+
+      - name: Download OpenWrt sources
+        shell: bash
+        working-directory: openwrt-src
+        run: |
+          set -euo pipefail
+
+          make -j"$(nproc)" download
+
+          BAD_DOWNLOADS="$(find dl -type f -size -1024c -print || true)"
+
+          if [ -n "$BAD_DOWNLOADS" ]; then
+            echo "ERROR: Incomplete downloaded files:"
+            echo "$BAD_DOWNLOADS"
+            exit 1
+          fi
+
+      - name: Build firmware
+        shell: bash
+        working-directory: openwrt-src
+        run: |
+          set -o pipefail
+
+          make -j"$(nproc)" 2>&1 | tee "$GITHUB_WORKSPACE/build.log" || {
+            echo
+            echo "Parallel build failed."
+            echo "Retrying with one job and verbose output."
+            echo
+
+            make -j1 V=s 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+          }
+
+      - name: Collect and verify firmware images
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf "$DIST_DIR"
+          mkdir -p "$DIST_DIR"
+
+          TARGET_DIR="$OPENWRT_DIR/bin/targets/ath79/generic"
+
+          if [ ! -d "$TARGET_DIR" ]; then
+            echo "ERROR: OpenWrt target output directory is missing:"
+            echo "$TARGET_DIR"
+            exit 1
+          fi
+
+          find "$TARGET_DIR" \
+            -maxdepth 1 \
+            -type f \
+            \( \
+              -name '*gainstrong_minibox-v1*.bin' \
+              -o -name 'sha256sums' \
+              -o -name 'profiles.json' \
+              -o -name '*.buildinfo' \
+              -o -name '*.manifest' \
+            \) \
+            -exec cp -v {} "$DIST_DIR/" \;
+
+          INITRAMFS="$(find "$DIST_DIR" \
+            -maxdepth 1 \
+            -type f \
+            -name '*gainstrong_minibox-v1*initramfs-kernel.bin' \
+            | head -n 1)"
+
+          SYSUPGRADE="$(find "$DIST_DIR" \
+            -maxdepth 1 \
+            -type f \
+            -name '*gainstrong_minibox-v1*squashfs-sysupgrade.bin' \
+            | head -n 1)"
+
+          if [ -z "$INITRAMFS" ]; then
+            echo "ERROR: MiniBox initramfs-kernel image was not generated."
+            ls -lah "$DIST_DIR"
+            exit 1
+          fi
+
+          if [ -z "$SYSUPGRADE" ]; then
+            echo "ERROR: MiniBox sysupgrade image was not generated."
+            ls -lah "$DIST_DIR"
+            exit 1
+          fi
+
+          sha256sum "$DIST_DIR"/* \
+            > "$DIST_DIR/BUILD-0104-SHA256SUMS.txt"
+
+          cat > "$DIST_DIR/READ-ME-FIRST.txt" <<'EOF'
+          MiniBox-MFP Build-0104 candidate firmware images
+          =================================================
+
+          DEVICE:
+          Gainstrong MiniBox V1.0
+          Qualcomm Atheros AR9330
+          Flash: 16 MiB
+          RAM: 64 MiB
+
+          OPENWRT:
+          v25.12.5
+          ath79/generic
+          gainstrong_minibox-v1
+
+          IMPORTANT SAFETY RULES:
+          1. First test ONLY the initramfs-kernel image by RAM boot.
+          2. Do NOT write the sysupgrade image to flash yet.
+          3. Verify Ethernet LAN.
+          4. Verify Wi-Fi and ART calibration.
+          5. Verify USB enumeration.
+          6. Verify physical printing through libusb.
+          7. usblp must not be used.
+
+          flash_allowed=false
+          EOF
+
+          echo
+          echo "Generated MiniBox files:"
+          ls -lah "$DIST_DIR"
+
+      - name: Upload firmware artifact
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: minibox-v1-openwrt-25.12.5-build0104
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: minibox-v1-build0104-log
+          path: build.log
+          if-no-files-found: ignore
+          retention-days: 14
