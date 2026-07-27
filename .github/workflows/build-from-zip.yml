@@ -264,13 +264,39 @@ jobs:
 
           cp "$KIT_ROOT/openwrt.config" .config
 
-          ./scripts/config \
-            --enable TARGET_ROOTFS_SQUASHFS \
-            --enable TARGET_ROOTFS_INITRAMFS \
-            --enable PACKAGE_minibox-mfp \
-            --enable PACKAGE_libusb-1.0 \
-            --enable PACKAGE_kmod-usb2 \
-            --disable PACKAGE_kmod-usb-printer
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path(".config")
+          desired = {
+              "TARGET_ROOTFS_SQUASHFS": True,
+              "TARGET_ROOTFS_INITRAMFS": True,
+              "PACKAGE_minibox-mfp": True,
+              "PACKAGE_libusb-1.0": True,
+              "PACKAGE_kmod-usb2": True,
+              "PACKAGE_kmod-usb-printer": False,
+          }
+
+          original = path.read_text(encoding="utf-8").splitlines()
+          output = []
+
+          for line in original:
+              if any(
+                  line.startswith(f"CONFIG_{symbol}=")
+                  or line == f"# CONFIG_{symbol} is not set"
+                  for symbol in desired
+              ):
+                  continue
+              output.append(line)
+
+          for symbol, enabled in desired.items():
+              if enabled:
+                  output.append(f"CONFIG_{symbol}=y")
+              else:
+                  output.append(f"# CONFIG_{symbol} is not set")
+
+          path.write_text("\n".join(output) + "\n", encoding="utf-8")
+          PY
 
           make defconfig
           cp .config "$GITHUB_WORKSPACE/final-openwrt.config"
@@ -441,7 +467,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: minibox-v1-build0104-diagnostics-v4
+          name: minibox-v1-build0104-diagnostics-v5
           path: |
             build.log
             download.log
