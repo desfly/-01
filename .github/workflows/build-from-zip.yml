@@ -234,13 +234,68 @@ jobs:
           rm -rf "$DEST/package/minibox-mfp"
           cp -a "$KIT_ROOT/package/minibox-mfp" "$DEST/package/minibox-mfp"
 
-          if ! profile_present; then
-            echo "ERROR: gainstrong_minibox-v1 was not injected."
+          PACKAGE_MAKEFILE="$DEST/package/minibox-mfp/Makefile"
+
+          if [ ! -f "$PACKAGE_MAKEFILE" ]; then
+            echo "ERROR: package/minibox-mfp/Makefile was not copied."
             exit 1
           fi
 
-          if [ ! -f "$DEST/package/minibox-mfp/Makefile" ]; then
-            echo "ERROR: package/minibox-mfp/Makefile was not copied."
+          # OpenWrt 25.12 uses apk-tools. In APK versions, release-candidate
+          # suffixes use _rcN, while -rN is reserved for the package release.
+          # Build-0104 contains 0.2.0-rc1, which becomes the invalid
+          # 0.2.0-rc1-r1. Normalize it to 0.2.0_rc1-r1 before building.
+          python3 - "$PACKAGE_MAKEFILE" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          path = Path(sys.argv[1])
+          text = path.read_text(encoding="utf-8")
+
+          match = re.search(
+              r"(?m)^PKG_VERSION\s*:?=\s*([^\s#]+)\s*$",
+              text,
+          )
+
+          if not match:
+              raise SystemExit("ERROR: PKG_VERSION was not found in minibox-mfp Makefile")
+
+          old_version = match.group(1)
+
+          if old_version == "0.2.0-rc1":
+              new_version = "0.2.0_rc1"
+          elif re.fullmatch(r"[0-9]+(?:\.[0-9]+)*-rc[0-9]+", old_version):
+              new_version = old_version.replace("-rc", "_rc", 1)
+          else:
+              new_version = old_version
+
+          if new_version != old_version:
+              start, end = match.span(1)
+              text = text[:start] + new_version + text[end:]
+              path.write_text(text, encoding="utf-8")
+
+          print(f"Original PKG_VERSION: {old_version}")
+          print(f"Effective PKG_VERSION: {new_version}")
+
+          if "-rc" in new_version:
+              raise SystemExit(
+                  "ERROR: APK-incompatible -rc suffix remains in PKG_VERSION"
+              )
+          PY
+
+          grep -E '^PKG_(NAME|VERSION|RELEASE)[[:space:]]*:?=' \
+            "$PACKAGE_MAKEFILE" \
+            | tee minibox-package-version.txt
+
+          if ! grep -Eq '^PKG_VERSION[[:space:]]*:?=[[:space:]]*0\.2\.0_rc1[[:space:]]*$' \
+            "$PACKAGE_MAKEFILE"; then
+            echo "ERROR: minibox-mfp APK-compatible version patch was not applied."
+            exit 1
+          fi
+
+          if ! profile_present; then
+            echo "ERROR: gainstrong_minibox-v1 was not injected."
             exit 1
           fi
 
@@ -326,6 +381,18 @@ jobs:
             echo "ERROR: forbidden usblp package is enabled."
             exit 1
           fi
+
+      - name: Restore OpenWrt build cache
+        id: restore-openwrt-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            openwrt-src/dl
+            openwrt-src/staging_dir
+            openwrt-src/build_dir
+          key: minibox-openwrt-v25.12.5-ath79-build0104-v6-${{ runner.os }}
+          restore-keys: |
+            minibox-openwrt-v25.12.5-ath79-build0104-
 
       - name: Download OpenWrt sources
         shell: bash
@@ -423,6 +490,15 @@ jobs:
             exit 1
           fi
 
+          while IFS= read -r -d '' package_file; do
+            cp -v "$package_file" "$DIST_DIR/"
+          done < <(
+            find "$OPENWRT_DIR/bin/packages" \
+              -type f \
+              -iname 'minibox-mfp*.apk' \
+              -print0 2>/dev/null || true
+          )
+
           (
             cd "$DIST_DIR"
             sha256sum ./* > BUILD-0104-SHA256SUMS.txt
@@ -463,11 +539,21 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Save OpenWrt build cache
+        if: always() && steps.restore-openwrt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            openwrt-src/dl
+            openwrt-src/staging_dir
+            openwrt-src/build_dir
+          key: minibox-openwrt-v25.12.5-ath79-build0104-v6-${{ runner.os }}
+
       - name: Upload diagnostic logs
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: minibox-v1-build0104-diagnostics-v5
+          name: minibox-v1-build0104-diagnostics-v6
           path: |
             build.log
             download.log
@@ -476,6 +562,7 @@ jobs:
             injector-arguments.txt
             injector-last-attempt.log
             injected-minibox-references.txt
+            minibox-package-version.txt
             target-output-files.txt
             final-openwrt.config
             openwrt-src/tmp/.config-target.in
