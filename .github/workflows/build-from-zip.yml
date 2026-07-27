@@ -59,15 +59,21 @@ jobs:
             autoconf \
             automake \
             autopoint \
-            clang \
-            flex \
             bison \
+            clang \
+            cmake \
+            cpio \
+            curl \
+            device-tree-compiler \
+            file \
+            flex \
             g++ \
+            g++-multilib \
             gawk \
             gcc-multilib \
-            g++-multilib \
             gettext \
             git \
+            jq \
             libelf-dev \
             libgmp-dev \
             libmpc-dev \
@@ -76,29 +82,22 @@ jobs:
             libssl-dev \
             libtool \
             libzstd-dev \
+            ninja-build \
+            patch \
+            perl \
+            pkgconf \
             python3 \
             python3-pyelftools \
             python3-setuptools \
             rsync \
-            swig \
             subversion \
+            swig \
+            tar \
             unzip \
-            zlib1g-dev \
-            file \
             wget \
-            curl \
-            ca-certificates \
-            cmake \
-            ninja-build \
-            pkgconf \
-            jq \
             xz-utils \
-            zstd \
-            cpio \
-            device-tree-compiler \
-            patch \
-            perl \
-            tar
+            zlib1g-dev \
+            zstd
 
       - name: Extract Build-0104 ZIP
         shell: bash
@@ -111,26 +110,42 @@ jobs:
 
           KIT_ROOT="$(find extracted -type f -name BUILD_INFO.md -printf '%h\n' -quit)"
 
-          if [ -z "$KIT_ROOT" ]; then
-            KIT_ROOT="$(find extracted -mindepth 1 -maxdepth 1 -type d -print -quit)"
-          fi
-
           if [ -z "$KIT_ROOT" ] || [ ! -d "$KIT_ROOT" ]; then
             echo "ERROR: Cannot determine the Build-0104 root directory."
-            find extracted -maxdepth 5 -print
+            find extracted -maxdepth 6 -print
             exit 1
           fi
 
+          KIT_ROOT="$(realpath "$KIT_ROOT")"
           echo "KIT_ROOT=$KIT_ROOT" >> "$GITHUB_ENV"
 
-          echo "Build kit root:"
-          echo "$KIT_ROOT"
+          find "$KIT_ROOT" -maxdepth 8 -type f | sort > extracted-tree.txt
 
-          find "$KIT_ROOT" -maxdepth 7 -type f | sort > extracted-tree.txt
-
+          echo "Build kit root: $KIT_ROOT"
           echo
-          echo "First 250 files in the archive:"
-          sed -n '1,250p' extracted-tree.txt
+          echo "Important bundled files:"
+          ls -l \
+            "$KIT_ROOT/scripts/inject-openwrt-tree.py" \
+            "$KIT_ROOT/openwrt.config" \
+            "$KIT_ROOT/board-port/device.mk" \
+            "$KIT_ROOT/board-port/02_network.fragment" \
+            "$KIT_ROOT/board-port/target/linux/ath79/dts/ar9330_gainstrong_minibox-v1.dts" \
+            "$KIT_ROOT/package/minibox-mfp/Makefile"
+
+      - name: Run bundled host validation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -f "$KIT_ROOT/scripts/run-host-validation.sh" ]; then
+            chmod +x "$KIT_ROOT/scripts/run-host-validation.sh"
+            (
+              cd "$KIT_ROOT"
+              bash scripts/run-host-validation.sh
+            ) 2>&1 | tee "$GITHUB_WORKSPACE/host-validation.log"
+          else
+            echo "Bundled host validation script is absent; continuing."
+          fi
 
       - name: Clone pinned OpenWrt source
         shell: bash
@@ -138,7 +153,6 @@ jobs:
           set -euo pipefail
 
           rm -rf "$OPENWRT_DIR"
-
           git clone \
             --depth 1 \
             --branch "$OPENWRT_TAG" \
@@ -147,266 +161,142 @@ jobs:
 
           git -C "$OPENWRT_DIR" describe --tags --exact-match
 
-      - name: Detect and inject MiniBox target and package
+      - name: Inject board port with bundled injector
         shell: bash
         run: |
           set -euo pipefail
 
-          ATH79_DIR="$(find "$KIT_ROOT" \
-            -type d \
-            -path '*/target/linux/ath79' \
-            -print -quit)"
+          DEST="$(realpath "$OPENWRT_DIR")"
+          INJECTOR="$KIT_ROOT/scripts/inject-openwrt-tree.py"
 
-          if [ -z "$ATH79_DIR" ]; then
-            echo "ERROR: target/linux/ath79 was not found inside Build-0104."
-            find "$KIT_ROOT" -maxdepth 8 -type d | sort
+          if [ ! -f "$INJECTOR" ]; then
+            echo "ERROR: Bundled injector is missing: $INJECTOR"
             exit 1
           fi
 
-          OVERLAY_ROOT="${ATH79_DIR%/target/linux/ath79}"
+          echo "Bundled injector arguments:"
+          grep -nE 'add_argument|ArgumentParser|usage=' "$INJECTOR" \
+            | head -n 80 \
+            | tee injector-arguments.txt || true
 
-          echo "OpenWrt overlay root:"
-          echo "$OVERLAY_ROOT"
+          reset_openwrt() {
+            git -C "$DEST" reset --hard HEAD >/dev/null
+            git -C "$DEST" clean -fdx >/dev/null
+          }
 
-          DEVICE_ID="$(
-            python3 - "$ATH79_DIR/image" <<'PY'
-          import pathlib
-          import re
-          import sys
+          profile_present() {
+            grep -Rqs 'gainstrong_minibox-v1' "$DEST/target/linux/ath79"
+          }
 
-          image_dir = pathlib.Path(sys.argv[1])
+          attempt() {
+            local description="$1"
+            shift
 
-          if not image_dir.is_dir():
-              raise SystemExit(1)
-
-          candidates = []
-
-          for path in sorted(image_dir.rglob("*")):
-              if not path.is_file():
-                  continue
-
-              text = path.read_text(encoding="utf-8", errors="ignore")
-
-              for match in re.finditer(
-                  r"^\s*define\s+Device/([^\s]+)",
-                  text,
-                  flags=re.MULTILINE,
-              ):
-                  device = match.group(1).strip()
-                  if "minibox" in device.lower():
-                      candidates.append(device)
-
-              for match in re.finditer(
-                  r"^\s*TARGET_DEVICES\s*\+=\s*(.+)$",
-                  text,
-                  flags=re.MULTILINE,
-              ):
-                  for device in match.group(1).split():
-                      if "minibox" in device.lower():
-                          candidates.append(device.strip())
-
-          candidates = sorted(set(candidates))
-
-          if not candidates:
-              raise SystemExit(1)
-
-          preferred = "gainstrong_minibox-v1"
-
-          if preferred in candidates:
-              print(preferred)
-          else:
-              print(candidates[0])
-          PY
-          )"
-
-          if [ -z "$DEVICE_ID" ]; then
-            echo "ERROR: Could not detect a MiniBox device definition."
             echo
-            echo "MiniBox references inside the supplied ath79 tree:"
-            grep -Rni 'minibox' "$ATH79_DIR" | head -n 150 || true
+            echo "=== Injector attempt: $description ==="
+            reset_openwrt
+
+            if (
+              cd "$KIT_ROOT"
+              python3 "$INJECTOR" "$@"
+            ) 2>&1 | tee injector-last-attempt.log; then
+              if profile_present; then
+                echo "Injector attempt succeeded: $description"
+                return 0
+              fi
+
+              echo "Injector returned success, but the MiniBox profile is absent."
+            else
+              echo "Injector attempt failed: $description"
+            fi
+
+            return 1
+          }
+
+          if attempt "one positional OpenWrt path" "$DEST"; then
+            :
+          elif attempt "--openwrt path" --openwrt "$DEST"; then
+            :
+          elif attempt "--openwrt-root path" --openwrt-root "$DEST"; then
+            :
+          elif attempt "--tree path" --tree "$DEST"; then
+            :
+          elif attempt "kit path plus OpenWrt path" "$KIT_ROOT" "$DEST"; then
+            :
+          else
+            echo
+            echo "ERROR: Could not run the bundled injector with any supported form."
+            echo "The injector source follows for diagnosis:"
+            sed -n '1,320p' "$INJECTOR"
             exit 1
           fi
 
-          echo "Detected OpenWrt device ID:"
-          echo "$DEVICE_ID"
+          rm -rf "$DEST/package/minibox-mfp"
+          cp -a "$KIT_ROOT/package/minibox-mfp" "$DEST/package/minibox-mfp"
 
-          rsync -a \
-            "$OVERLAY_ROOT/target/" \
-            "$OPENWRT_DIR/target/"
-
-          if [ -d "$OVERLAY_ROOT/package" ]; then
-            rsync -a \
-              "$OVERLAY_ROOT/package/" \
-              "$OPENWRT_DIR/package/"
-          fi
-
-          PACKAGE_DIR="$(find "$KIT_ROOT" \
-            -type d \
-            -path '*/package/minibox-mfp' \
-            -print -quit)"
-
-          if [ -n "$PACKAGE_DIR" ]; then
-            rm -rf "$OPENWRT_DIR/package/minibox-mfp"
-            cp -a \
-              "$PACKAGE_DIR" \
-              "$OPENWRT_DIR/package/minibox-mfp"
-          fi
-
-          if [ -d "$OVERLAY_ROOT/files" ]; then
-            mkdir -p "$OPENWRT_DIR/files"
-            rsync -a \
-              "$OVERLAY_ROOT/files/" \
-              "$OPENWRT_DIR/files/"
-          fi
-
-          if ! grep -RiqF \
-            "$DEVICE_ID" \
-            "$OPENWRT_DIR/target/linux/ath79"; then
-            echo "ERROR: The detected MiniBox device was not copied into OpenWrt."
-            echo "DEVICE_ID=$DEVICE_ID"
+          if ! profile_present; then
+            echo "ERROR: gainstrong_minibox-v1 was not injected."
             exit 1
           fi
 
-          if [ ! -f "$OPENWRT_DIR/package/minibox-mfp/Makefile" ]; then
-            echo "ERROR: package/minibox-mfp/Makefile was not injected."
-            find "$KIT_ROOT" -maxdepth 8 -path '*minibox-mfp*' -print
+          if [ ! -f "$DEST/package/minibox-mfp/Makefile" ]; then
+            echo "ERROR: package/minibox-mfp/Makefile was not copied."
             exit 1
           fi
-
-          echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
 
           echo
-          echo "MiniBox references after injection:"
-          grep -Rni \
-            --exclude='*.o' \
-            --exclude='*.bin' \
-            'minibox' \
-            "$OPENWRT_DIR/target/linux/ath79" \
-            | head -n 150 || true
+          echo "Injected MiniBox references:"
+          grep -Rni 'gainstrong_minibox-v1\|minibox-v1' \
+            "$DEST/target/linux/ath79" \
+            | head -n 160 \
+            | tee injected-minibox-references.txt
 
-          echo
-          echo "MiniBox target and package injection: PASS"
-
-      - name: Configure OpenWrt
+      - name: Configure OpenWrt from bundled config
         shell: bash
         working-directory: openwrt-src
         run: |
           set -euo pipefail
 
-          if [ -z "${DEVICE_ID:-}" ]; then
-            echo "ERROR: DEVICE_ID is not set."
+          if [ ! -f "$KIT_ROOT/openwrt.config" ]; then
+            echo "ERROR: Bundled openwrt.config is missing."
             exit 1
           fi
 
-          cat > .config <<'EOF'
-          CONFIG_TARGET_ath79=y
-          CONFIG_TARGET_ath79_generic=y
-          EOF
-
-          make defconfig
-
-          if [ ! -f tmp/.config-target.in ]; then
-            echo "ERROR: tmp/.config-target.in was not generated."
-            exit 1
-          fi
-
-          PROFILE_SYMBOL="$(
-            python3 - tmp/.config-target.in "$DEVICE_ID" <<'PY'
-          import pathlib
-          import re
-          import sys
-
-          path = pathlib.Path(sys.argv[1])
-          device_id = sys.argv[2].lower()
-          text = path.read_text(encoding="utf-8", errors="ignore")
-
-          blocks = re.split(r"(?m)(?=^config\s+)", text)
-          candidates = []
-
-          for block in blocks:
-              header = re.match(r"^config\s+(\S+)", block)
-
-              if not header:
-                  continue
-
-              symbol = header.group(1)
-
-              if not symbol.startswith("TARGET_ath79_generic_DEVICE_"):
-                  continue
-
-              lower = block.lower()
-
-              if device_id in lower or "minibox" in lower:
-                  candidates.append(symbol)
-
-          candidates = sorted(set(candidates))
-
-          if not candidates:
-              raise SystemExit(1)
-
-          print(candidates[0])
-          PY
-          )"
-
-          if [ -z "$PROFILE_SYMBOL" ]; then
-            echo "ERROR: Could not detect the generated MiniBox Kconfig symbol."
-            grep -ni -C 4 'minibox' tmp/.config-target.in || true
-            exit 1
-          fi
-
-          echo "Detected Kconfig profile symbol:"
-          echo "$PROFILE_SYMBOL"
+          cp "$KIT_ROOT/openwrt.config" .config
 
           ./scripts/config \
-            --enable TARGET_ath79 \
-            --enable TARGET_ath79_generic \
-            --enable "$PROFILE_SYMBOL" \
             --enable TARGET_ROOTFS_SQUASHFS \
             --enable TARGET_ROOTFS_INITRAMFS \
-            --enable TARGET_INITRAMFS_COMPRESSION_LZMA \
             --enable PACKAGE_minibox-mfp \
             --enable PACKAGE_libusb-1.0 \
             --enable PACKAGE_kmod-usb2 \
-            --enable PACKAGE_ubus \
-            --enable PACKAGE_uci \
-            --enable PACKAGE_uhttpd \
             --disable PACKAGE_kmod-usb-printer
 
           make defconfig
+          cp .config "$GITHUB_WORKSPACE/final-openwrt.config"
 
-          echo "PROFILE_SYMBOL=$PROFILE_SYMBOL" >> "$GITHUB_ENV"
-
-          echo
-          echo "Selected configuration:"
+          echo "Selected MiniBox configuration:"
           grep -E \
-            'CONFIG_TARGET_ath79|DEVICE_.*[Mm]inibox|CONFIG_PACKAGE_minibox-mfp|CONFIG_TARGET_ROOTFS_INITRAMFS|CONFIG_PACKAGE_libusb' \
+            'CONFIG_TARGET_ath79|gainstrong_minibox|CONFIG_PACKAGE_minibox-mfp|CONFIG_TARGET_ROOTFS_INITRAMFS|CONFIG_PACKAGE_libusb|CONFIG_PACKAGE_kmod-usb-printer' \
             .config || true
 
-          if ! grep -Fqx \
-            "CONFIG_${PROFILE_SYMBOL}=y" \
-            .config; then
-            echo "ERROR: MiniBox profile was removed by make defconfig."
-            echo "Expected: CONFIG_${PROFILE_SYMBOL}=y"
+          if ! grep -q '^CONFIG_TARGET_ath79_generic_DEVICE_gainstrong_minibox-v1=y$' .config; then
+            echo "ERROR: gainstrong_minibox-v1 target is not selected."
+            grep -ni -C 5 'minibox' .config tmp/.config-target.in 2>/dev/null || true
             exit 1
           fi
 
-          if ! grep -q \
-            '^CONFIG_PACKAGE_minibox-mfp=y$' \
-            .config; then
-            echo "ERROR: MiniBox-MFP package is not selected."
+          if ! grep -q '^CONFIG_PACKAGE_minibox-mfp=y$' .config; then
+            echo "ERROR: minibox-mfp package is not selected."
             exit 1
           fi
 
-          if ! grep -q \
-            '^CONFIG_TARGET_ROOTFS_INITRAMFS=y$' \
-            .config; then
-            echo "ERROR: initramfs image generation is not enabled."
+          if ! grep -q '^CONFIG_TARGET_ROOTFS_INITRAMFS=y$' .config; then
+            echo "ERROR: initramfs generation is not enabled."
             exit 1
           fi
 
-          if grep -q \
-            '^CONFIG_PACKAGE_kmod-usb-printer=y$' \
-            .config; then
+          if grep -q '^CONFIG_PACKAGE_kmod-usb-printer=y$' .config; then
             echo "ERROR: forbidden usblp package is enabled."
             exit 1
           fi
@@ -425,6 +315,13 @@ jobs:
                 | tee -a "$GITHUB_WORKSPACE/download.log"
             }
 
+          BAD_DOWNLOADS="$(find dl -type f -size -1024c -print || true)"
+          if [ -n "$BAD_DOWNLOADS" ]; then
+            echo "ERROR: Incomplete downloaded files:"
+            echo "$BAD_DOWNLOADS"
+            exit 1
+          fi
+
       - name: Build firmware
         shell: bash
         working-directory: openwrt-src
@@ -434,9 +331,7 @@ jobs:
           make -j"$(nproc)" 2>&1 \
             | tee "$GITHUB_WORKSPACE/build.log" || {
               echo
-              echo "Parallel build failed."
-              echo "Retrying with one job and verbose output."
-              echo
+              echo "Parallel build failed. Retrying serially with V=s."
               make -j1 V=s 2>&1 \
                 | tee -a "$GITHUB_WORKSPACE/build.log"
             }
@@ -452,10 +347,13 @@ jobs:
           TARGET_DIR="$OPENWRT_DIR/bin/targets/ath79/generic"
 
           if [ ! -d "$TARGET_DIR" ]; then
-            echo "ERROR: OpenWrt target output directory is missing:"
-            echo "$TARGET_DIR"
+            echo "ERROR: OpenWrt target output directory is missing: $TARGET_DIR"
             exit 1
           fi
+
+          find "$TARGET_DIR" -maxdepth 1 -type f -printf '%f\n' \
+            | sort \
+            | tee target-output-files.txt
 
           while IFS= read -r -d '' file; do
             cp -v "$file" "$DIST_DIR/"
@@ -464,12 +362,13 @@ jobs:
               -maxdepth 1 \
               -type f \
               \( \
-                -iname "*${DEVICE_ID}*.bin" \
+                -iname '*gainstrong_minibox-v1*.bin' \
                 -o -iname '*minibox*.bin' \
                 -o -name 'sha256sums' \
                 -o -name 'profiles.json' \
                 -o -name '*.buildinfo' \
                 -o -name '*.manifest' \
+                -o -name '*.json' \
               \) \
               -print0
           )
@@ -488,17 +387,13 @@ jobs:
 
           if [ -z "$INITRAMFS" ]; then
             echo "ERROR: MiniBox initramfs-kernel image was not generated."
-            echo
-            echo "All target output files:"
-            find "$TARGET_DIR" -maxdepth 1 -type f -printf '%f\n' | sort
+            cat target-output-files.txt
             exit 1
           fi
 
           if [ -z "$SYSUPGRADE" ]; then
             echo "ERROR: MiniBox squashfs-sysupgrade image was not generated."
-            echo
-            echo "All target output files:"
-            find "$TARGET_DIR" -maxdepth 1 -type f -printf '%f\n' | sort
+            cat target-output-files.txt
             exit 1
           fi
 
@@ -507,18 +402,17 @@ jobs:
             sha256sum ./* > BUILD-0104-SHA256SUMS.txt
           )
 
-          cat > "$DIST_DIR/READ-ME-FIRST.txt" <<EOF
+          cat > "$DIST_DIR/READ-ME-FIRST.txt" <<'EOF'
           MiniBox-MFP Build-0104 candidate firmware images
           =================================================
 
-          Device ID: ${DEVICE_ID}
-          OpenWrt: ${OPENWRT_TAG}
-          Target: ath79/generic
-          SoC: Qualcomm Atheros AR9330
+          DEVICE:
+          Gainstrong MiniBox V1.0
+          Qualcomm Atheros AR9330
           Flash: 16 MiB
           RAM: 64 MiB
 
-          IMPORTANT:
+          SAFETY:
           1. First test ONLY the initramfs-kernel image by RAM boot.
           2. Do NOT write the sysupgrade image to flash yet.
           3. Verify Ethernet LAN.
@@ -547,12 +441,17 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: minibox-v1-build0104-diagnostics
+          name: minibox-v1-build0104-diagnostics-v4
           path: |
             build.log
             download.log
+            host-validation.log
             extracted-tree.txt
-            openwrt-src/.config
+            injector-arguments.txt
+            injector-last-attempt.log
+            injected-minibox-references.txt
+            target-output-files.txt
+            final-openwrt.config
             openwrt-src/tmp/.config-target.in
           if-no-files-found: ignore
           retention-days: 14
