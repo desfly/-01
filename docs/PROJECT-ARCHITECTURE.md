@@ -68,6 +68,23 @@ After the first successful boot of a new OpenWrt image, validate in this order:
 9. Validate isolation/firewall rules so the RJ45 gateway does not compromise management or MFP services.
 10. Validate the minimal management web UI and service autostart.
 
+## Current hardware validation status — 2026-09-15
+
+The detailed bring-up record is in [`HARDWARE-VALIDATION-2026-09-15.md`](HARDWARE-VALIDATION-2026-09-15.md).
+
+Already confirmed on the physical MiniBox + HP M1522n:
+
+- Build-0105 permanently flashed and boots OpenWrt 25.12.5.
+- Wi-Fi client autoconnect works and obtains `192.168.55.250` by DHCP.
+- Internet/NTP through Wi-Fi works.
+- USB host detects HP LaserJet M1522n as `03f0:4517`.
+- `usblp` is absent; `libusb-1.0-0` and `minibox-mfp` are installed.
+- `miniboxd` runs, exposes ubus object `minibox`, and listens on TCP RAW port 9100.
+- Local libusb printing to the HP physically works.
+- Windows -> Wi-Fi -> `192.168.55.250:9100` -> MiniBox -> libusb -> HP physically works; a `WIFI TCP 9100 TEST` page was printed.
+
+Do not repeat those acceptance tests unless debugging a regression. The immediate continuation point is Windows printer-driver installation on Standard TCP/IP RAW port 9100, then scanning. RJ45 routed/NAT gateway testing remains pending because no Ethernet cable was available during the validation session.
+
 ## Design intent
 
 The finished appliance combines two roles:
