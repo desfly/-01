@@ -137,13 +137,15 @@ jobs:
           print(f'PKG_VERSION {old} -> {new}')
           PY
 
-      - name: Install only the LuCI feed packages needed for luci-light
+      - name: Install LuCI and required feed dependencies
         shell: bash
         working-directory: openwrt-src
         run: |
           set -euo pipefail
-          ./scripts/feeds update luci
-          ./scripts/feeds install luci-light
+          ./scripts/feeds update packages luci
+          ./scripts/feeds install -p packages cgi-io
+          ./scripts/feeds install -p luci luci-light
+          test -e package/feeds/packages/cgi-io
 
       - name: Configure minimal MiniBox image with LuCI
         shell: bash
@@ -184,12 +186,13 @@ jobs:
 
           grep -q '^CONFIG_TARGET_ath79_generic_DEVICE_gainstrong_minibox-v1=y$' .config
           grep -q '^CONFIG_PACKAGE_luci-light=y$' .config
+          grep -q '^CONFIG_PACKAGE_cgi-io=y$' .config
           grep -q '^CONFIG_PACKAGE_minibox-mfp=y$' .config
           grep -q '^CONFIG_PACKAGE_libusb-1.0=y$' .config
           ! grep -q '^CONFIG_PACKAGE_kmod-usb-printer=y$' .config
 
           echo 'Selected footprint-sensitive packages:'
-          grep -E '^CONFIG_PACKAGE_(luci-light|ppp|ppp-mod-pppoe|odhcp6c|odhcpd-ipv6only|kmod-usb-printer|libusb-1.0|minibox-mfp)=' .config || true
+          grep -E '^CONFIG_PACKAGE_(luci-light|cgi-io|ppp|ppp-mod-pppoe|odhcp6c|odhcpd-ipv6only|kmod-usb-printer|libusb-1.0|minibox-mfp)=' .config || true
 
       - name: Download sources
         shell: bash
