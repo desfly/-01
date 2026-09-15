@@ -1,0 +1,17 @@
+name: MiniBox print scan server contract
+on:
+  push:
+    branches: [minibox-network-mfp-runtime-v2]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  server-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compile and exercise IPP/eSCL server transports
+        run: sh tests/test-mfp-servers.sh
+      - name: Enforce no CUPS and no usblp
+        run: |
+          set -euo pipefail
+          ! grep -RniE '(^|[^A-Za-z])(cupsd|kmod-usb-printer)([^A-Za-z]|$)' src overlay tests --exclude='*.md'
