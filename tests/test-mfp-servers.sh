@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 cc -std=c99 -Wall -Wextra -Werror -pedantic -DMINIBOX_TEST_PRINT_SINK src/minibox-printerd/main.c src/minibox-ipp/ipp.c -o /tmp/minibox-printerd
-cc -std=c99 -Wall -Wextra -Werror -pedantic src/minibox-scand/main.c src/minibox-escl/escl.c -o /tmp/minibox-scand
+cc -std=c99 -Wall -Wextra -Werror -pedantic src/minibox-scand/main.c src/minibox-scand/scan_session.c src/minibox-escl/escl.c -o /tmp/minibox-scand
 MINIBOX_TEST_PRINT_FILE=/tmp/printed.bin /tmp/minibox-printerd 18631 >/tmp/printerd.log 2>&1 & P=$!
 /tmp/minibox-scand 18080 >/tmp/scand.log 2>&1 & S=$!
 trap 'kill $P $S 2>/dev/null || true' EXIT INT TERM
@@ -26,6 +26,7 @@ EOF
 code=$(curl -sS -D /tmp/scan.headers -o /tmp/scan.out -w '%{http_code}' -H 'Content-Type: text/xml' --data-binary @/tmp/scan.xml http://127.0.0.1:18080/eSCL/ScanJobs); [ "$code" = 201 ]
 grep -qi '^Location: /eSCL/ScanJobs/1' /tmp/scan.headers
 curl -fsS http://127.0.0.1:18080/eSCL/ScannerStatus | grep -q '<scan:State>Processing</scan:State>'
+code=$(curl -sS -o /tmp/wrong.out -w '%{http_code}' http://127.0.0.1:18080/eSCL/ScanJobs/99/NextDocument); [ "$code" = 404 ]
 code=$(curl -sS -o /tmp/next.out -w '%{http_code}' http://127.0.0.1:18080/eSCL/ScanJobs/1/NextDocument); [ "$code" = 503 ]
 curl -fsS http://127.0.0.1:18080/eSCL/ScannerStatus | grep -q '<scan:State>Idle</scan:State>'
 echo 'MFP server transport contract OK'
