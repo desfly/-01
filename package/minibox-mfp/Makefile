@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=minibox-mfp
 PKG_VERSION:=0.3.0
-PKG_RELEASE:=6
+PKG_RELEASE:=7
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -29,7 +29,8 @@ TARGET_CFLAGS += -std=c99 -Wall -Wextra
 MB_CC=$(TARGET_CC) $(TARGET_CPPFLAGS) $(TARGET_CFLAGS) $(TARGET_LDFLAGS)
 
 define Build/Compile
-	$(MB_CC) -o $(PKG_BUILD_DIR)/minibox-printerd \
+	$(INSTALL_DIR) $(PKG_BUILD_DIR)/bin
+	$(MB_CC) -o $(PKG_BUILD_DIR)/bin/minibox-printerd \
 		$(PKG_BUILD_DIR)/minibox-printerd/main.c \
 		$(PKG_BUILD_DIR)/minibox-printerd/http_body.c \
 		$(PKG_BUILD_DIR)/minibox-ipp/ipp.c \
@@ -37,7 +38,7 @@ define Build/Compile
 		$(PKG_BUILD_DIR)/minibox-usb/stream.c \
 		$(PKG_BUILD_DIR)/minibox-usb/libusb_m1522.c \
 		$(PKG_BUILD_DIR)/minibox-usb/print_m1522.c -lusb-1.0
-	$(MB_CC) -o $(PKG_BUILD_DIR)/minibox-scand \
+	$(MB_CC) -o $(PKG_BUILD_DIR)/bin/minibox-scand \
 		$(PKG_BUILD_DIR)/minibox-scand/main.c \
 		$(PKG_BUILD_DIR)/minibox-scand/scan_session.c \
 		$(PKG_BUILD_DIR)/minibox-scand/scan_backend.c \
@@ -47,21 +48,21 @@ define Build/Compile
 		$(PKG_BUILD_DIR)/minibox-scan/soapht_m1522_io.c \
 		$(PKG_BUILD_DIR)/minibox-scan/soapht_codec.c \
 		$(PKG_BUILD_DIR)/minibox-usb/scan_m1522.c -lusb-1.0
-	$(MB_CC) -o $(PKG_BUILD_DIR)/minibox-discoveryd \
+	$(MB_CC) -o $(PKG_BUILD_DIR)/bin/minibox-discoveryd \
 		$(PKG_BUILD_DIR)/minibox-discoveryd/main.c \
 		$(PKG_BUILD_DIR)/minibox-discoveryd/service.c \
 		$(PKG_BUILD_DIR)/minibox-discoveryd/mdns.c
-	$(MB_CC) -o $(PKG_BUILD_DIR)/minibox-scan-diag \
+	$(MB_CC) -o $(PKG_BUILD_DIR)/bin/minibox-scan-diag \
 		$(PKG_BUILD_DIR)/minibox-usb/scan_diag.c \
 		$(PKG_BUILD_DIR)/minibox-usb/scan_m1522.c -lusb-1.0
 endef
 
 define Package/minibox-mfp/install
 	$(INSTALL_DIR) $(1)/usr/sbin
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/minibox-printerd $(1)/usr/sbin/
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/minibox-scand $(1)/usr/sbin/
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/minibox-discoveryd $(1)/usr/sbin/
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/minibox-scan-diag $(1)/usr/sbin/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/bin/minibox-printerd $(1)/usr/sbin/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/bin/minibox-scand $(1)/usr/sbin/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/bin/minibox-discoveryd $(1)/usr/sbin/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/bin/minibox-scan-diag $(1)/usr/sbin/
 
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/etc/init.d/minibox-printerd $(1)/etc/init.d/
