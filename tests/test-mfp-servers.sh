@@ -10,8 +10,26 @@ curl -fsS http://127.0.0.1:18631/health | grep -q 'printerd ok'
 curl -fsS http://127.0.0.1:18080/health | grep -q 'scand ok'
 printf '\002\000\000\013\000\000\000\001\003' >/tmp/ipp.req
 curl -fsS -o /tmp/ipp.out -H 'Content-Type: application/ipp' --data-binary @/tmp/ipp.req http://127.0.0.1:18631/ipp/print
-printf '\002\000\000\000\000\000\000\001\003' >/tmp/ipp.ok
-cmp /tmp/ipp.ok /tmp/ipp.out
+python3 - <<'PY'
+from pathlib import Path
+
+data = Path('/tmp/ipp.out').read_bytes()
+assert len(data) > 9, f'Get-Printer-Attributes response too short: {len(data)}'
+assert data[:8] == b'\x02\x00\x00\x00\x00\x00\x00\x01', data[:8].hex()
+assert data[8] == 0x04, f'expected printer-attributes group, got 0x{data[8]:02x}'
+for value in (
+    b'printer-name',
+    b'HP LaserJet M1522n @ MiniBox',
+    b'printer-make-and-model',
+    b'HP LaserJet M1522n',
+    b'printer-uri-supported',
+    b'ipp://minibox.local/ipp/print',
+    b'operations-supported',
+    b'ipp-versions-supported',
+):
+    assert value in data, f'missing IPP attribute/value: {value!r}'
+assert data[-1:] == b'\x03', 'IPP response missing end-of-attributes tag'
+PY
 printf '\002\000\000\002\000\000\000\002\003\033EHello MiniBox\014\033E' >/tmp/print.req
 printf '\033EHello MiniBox\014\033E' >/tmp/document.expected
 curl -fsS -o /tmp/print.out -H 'Content-Type: application/ipp' --data-binary @/tmp/print.req http://127.0.0.1:18631/ipp/print
