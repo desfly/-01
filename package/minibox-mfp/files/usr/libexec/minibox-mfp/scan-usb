@@ -1,0 +1,14 @@
+#!/bin/sh
+# USB scanner backend boundary. No usblp/CUPS; scanner transport remains userspace/libusb.
+set -eu
+req="${1:-SCAN}"
+out="${2:?output path required}"
+
+# Prefer scanimage when the image includes sane-backends; force the HP USB device contract.
+if command -v scanimage >/dev/null 2>&1; then
+  # Request parser intentionally conservative until REST/UI validation is wired.
+  exec scanimage --format=pnm > "$out"
+fi
+
+printf '%s\n' 'scan backend unavailable: install/configure SANE libusb backend' >&2
+exit 69
