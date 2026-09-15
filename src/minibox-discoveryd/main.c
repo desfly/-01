@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200112L
 #include "service.h"
 #include "mdns.h"
 #include <dirent.h>
