@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-cc -std=c99 -Wall -Wextra -Werror -pedantic src/minibox-printerd/main.c -o /tmp/minibox-printerd
+cc -std=c99 -Wall -Wextra -Werror -pedantic src/minibox-printerd/main.c src/minibox-ipp/ipp.c -o /tmp/minibox-printerd
 cc -std=c99 -Wall -Wextra -Werror -pedantic src/minibox-scand/main.c -o /tmp/minibox-scand
 /tmp/minibox-printerd 18631 >/tmp/printerd.log 2>&1 & P=$!
 /tmp/minibox-scand 18080 >/tmp/scand.log 2>&1 & S=$!
@@ -10,6 +10,9 @@ curl -fsS http://127.0.0.1:18631/health | grep -q 'printerd ok'
 curl -fsS http://127.0.0.1:18080/health | grep -q 'scand ok'
 curl -fsS http://127.0.0.1:18080/eSCL/ScannerCapabilities | grep -q 'HP LaserJet M1522n'
 curl -fsS http://127.0.0.1:18080/eSCL/ScannerStatus | grep -q '<scan:State>Idle</scan:State>'
-code=$(curl -sS -o /tmp/ipp.out -w '%{http_code}' -X POST http://127.0.0.1:18631/ipp/print); [ "$code" = 501 ]
+printf '\002\000\000\013\000\000\000\001\003' >/tmp/ipp.req
+code=$(curl -sS -o /tmp/ipp.out -w '%{http_code}' -H 'Content-Type: application/ipp' --data-binary @/tmp/ipp.req http://127.0.0.1:18631/ipp/print); [ "$code" = 200 ]
+printf '\002\000\000\000\000\000\000\001\003' >/tmp/ipp.ok
+cmp /tmp/ipp.ok /tmp/ipp.out
 code=$(curl -sS -o /tmp/scan.out -w '%{http_code}' -X POST http://127.0.0.1:18080/eSCL/ScanJobs); [ "$code" = 501 ]
 echo 'MFP server transport contract OK'
