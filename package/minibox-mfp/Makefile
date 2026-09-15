@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=minibox-mfp
 PKG_VERSION:=0.3.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -45,7 +45,8 @@ define Build/Compile
 		$(PKG_BUILD_DIR)/minibox-discoveryd/service.c \
 		$(PKG_BUILD_DIR)/minibox-discoveryd/mdns.c
 	$(MB_CC) -o $(PKG_BUILD_DIR)/minibox-scan-diag \
-		$(PKG_BUILD_DIR)/minibox-usb/scan_diag.c -lusb-1.0
+		$(PKG_BUILD_DIR)/minibox-usb/scan_diag.c \
+		$(PKG_BUILD_DIR)/minibox-usb/scan_m1522.c -lusb-1.0
 endef
 
 define Package/minibox-mfp/install
