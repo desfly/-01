@@ -3,8 +3,7 @@
 #include <stdlib.h>
 
 /* Small, allocation-free parser for the HTTP-like framing used on the
- * HP-SOAP-SCAN channel.  This deliberately does not encode scanner commands:
- * request XML remains fail-closed until an M1522 transcript/spec is verified. */
+ * HP-SOAP-SCAN channel. This does not encode scanner commands. */
 
 struct soapht_http_response {
     int status;
@@ -44,12 +43,15 @@ int soapht_http_parse_response(const unsigned char *buf, size_t len,
     if (!buf || !out) return -1;
     memset(out, 0, sizeof(*out));
     end = find_bytes(buf, len, "\r\n\r\n", 4);
-    if (!end) return 1; /* need more bytes */
+    if (!end) return 1;
     head_len = (size_t)(end - buf) + 4;
     out->header_len = head_len;
     if (len < 12 || memcmp(buf, "HTTP/1.", 7) != 0) return -2;
     line = find_bytes(buf, head_len, " ", 1);
     if (!line || (size_t)(line - buf) + 4 > head_len) return -2;
+    if (line[1] < '0' || line[1] > '9' ||
+        line[2] < '0' || line[2] > '9' ||
+        line[3] < '0' || line[3] > '9') return -2;
     out->status = (line[1]-'0')*100 + (line[2]-'0')*10 + (line[3]-'0');
     if (out->status < 100 || out->status > 599) return -2;
 
@@ -57,10 +59,13 @@ int soapht_http_parse_response(const unsigned char *buf, size_t len,
     if (!line) return -2;
     line += 2;
     while (line < end) {
-        const unsigned char *eol = find_bytes(line, (size_t)(end-line), "\r\n", 2);
+        const unsigned char *eol;
         size_t name_len, value_len;
         const unsigned char *value;
-        if (!eol) return -2;
+        /* For the final header, its terminating CRLF is the first half of
+         * the CRLFCRLF delimiter, so search through end+2. */
+        eol = find_bytes(line, (size_t)((end + 2) - line), "\r\n", 2);
+        if (!eol || eol > end) return -2;
         colon = find_bytes(line, (size_t)(eol-line), ":", 1);
         if (!colon) return -2;
         name_len = (size_t)(colon-line);
@@ -72,7 +77,8 @@ int soapht_http_parse_response(const unsigned char *buf, size_t len,
             char *ep;
             unsigned long v;
             if (value_len == 0 || value_len >= sizeof(tmp)) return -3;
-            memcpy(tmp, value, value_len); tmp[value_len] = 0;
+            memcpy(tmp, value, value_len);
+            tmp[value_len] = 0;
             v = strtoul(tmp, &ep, 10);
             if (*ep) return -3;
             out->content_length = (size_t)v;
