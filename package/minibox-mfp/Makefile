@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=minibox-mfp
 PKG_VERSION:=0.3.0
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -39,6 +39,7 @@ define Build/Compile
 	$(MB_CC) -o $(PKG_BUILD_DIR)/minibox-scand \
 		$(PKG_BUILD_DIR)/minibox-scand/main.c \
 		$(PKG_BUILD_DIR)/minibox-scand/scan_session.c \
+		$(PKG_BUILD_DIR)/minibox-scand/scan_backend.c \
 		$(PKG_BUILD_DIR)/minibox-escl/escl.c
 	$(MB_CC) -o $(PKG_BUILD_DIR)/minibox-discoveryd \
 		$(PKG_BUILD_DIR)/minibox-discoveryd/main.c \
