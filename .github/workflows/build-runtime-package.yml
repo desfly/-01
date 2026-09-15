@@ -13,6 +13,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: minibox-runtime-v2-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-runtime-apk:
     runs-on: ubuntu-24.04
