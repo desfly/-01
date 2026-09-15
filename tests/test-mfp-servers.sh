@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-cc -std=c99 -Wall -Wextra -Werror -pedantic -DMINIBOX_TEST_PRINT_SINK src/minibox-printerd/main.c src/minibox-ipp/ipp.c -o /tmp/minibox-printerd
+cc -std=c99 -Wall -Wextra -Werror -pedantic -DMINIBOX_TEST_PRINT_SINK src/minibox-printerd/main.c src/minibox-printerd/http_body.c src/minibox-ipp/ipp.c -o /tmp/minibox-printerd
 cc -std=c99 -Wall -Wextra -Werror -pedantic -DMINIBOX_TEST_SCAN_BACKEND src/minibox-scand/main.c src/minibox-scand/scan_session.c src/minibox-scand/scan_backend.c src/minibox-escl/escl.c -o /tmp/minibox-scand
 MINIBOX_TEST_PRINT_FILE=/tmp/printed.bin /tmp/minibox-printerd 18631 >/tmp/printerd.log 2>&1 & P=$!
 /tmp/minibox-scand 18080 >/tmp/scand.log 2>&1 & S=$!
