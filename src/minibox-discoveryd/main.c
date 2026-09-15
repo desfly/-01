@@ -25,14 +25,27 @@ static int has_suffix(const char *s, const char *suffix) {
 }
 
 int main(int argc, char **argv) {
-    const char *dir = argc > 1 ? argv[1] : MB_SERVICES_DIR;
+    const char *dir = MB_SERVICES_DIR;
+    int once = 0;
+    int argi = 1;
     mb_service_t services[MB_MAX_SERVICES];
     char hostname[64] = "minibox";
-    DIR *d = opendir(dir);
+    DIR *d;
     struct dirent *de;
     unsigned count = 0;
     int rc;
 
+    if (argi < argc && !strcmp(argv[argi], "--once")) {
+        once = 1;
+        argi++;
+    }
+    if (argi < argc) dir = argv[argi++];
+    if (argi != argc) {
+        fprintf(stderr, "usage: %s [--once] [services-dir]\n", argv[0]);
+        return 2;
+    }
+
+    d = opendir(dir);
     if (!d) {
         fprintf(stderr, "minibox-discoveryd: cannot open %s: %s\n", dir, strerror(errno));
         return 1;
@@ -59,16 +72,19 @@ int main(int argc, char **argv) {
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
 
-    while (!stop) {
+    do {
         unsigned waited;
         rc = mb_mdns_publish_once(services, count, hostname);
         if (rc) {
             fprintf(stderr, "minibox-discoveryd: mDNS publish failed: %d\n", rc);
+            if (once) return 4;
         } else {
-            fprintf(stderr, "minibox-discoveryd: published %u service(s) as %s.local\n", count, hostname);
+            printf("minibox-discoveryd: published %u service(s) as %s.local\n", count, hostname);
+            fflush(stdout);
         }
+        if (once) break;
         for (waited = 0; waited < MB_ANNOUNCE_INTERVAL_SEC && !stop; waited++) sleep(1);
-    }
+    } while (!stop);
 
     return 0;
 }
