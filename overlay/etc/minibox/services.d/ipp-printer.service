@@ -1,0 +1,8 @@
+# MiniBox MFP DNS-SD service contract
+# Consumed by minibox-discoveryd; intentionally no CUPS dependency.
+[service]
+name=HP LaserJet M1522n @ MiniBox
+type=_ipp._tcp
+port=631
+path=/ipp/print
+txt=txtvers=1;qtotal=1;rp=ipp/print;ty=HP LaserJet M1522n;product=(HP LaserJet M1522n);pdl=application/pdf,image/urf,image/jpeg,application/postscript,application/vnd.hp-PCL;Color=F;Duplex=T;Scan=T;note=MiniBox MFP;air=none;URF=V1.4,W8,DM1,IS1-4,MT1-2-3-5,OB10,RS300
