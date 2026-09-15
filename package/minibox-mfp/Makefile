@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=minibox-mfp
 PKG_VERSION:=0.3.0
-PKG_RELEASE:=5
+PKG_RELEASE:=6
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -62,7 +62,18 @@ define Package/minibox-mfp/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/minibox-scand $(1)/usr/sbin/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/minibox-discoveryd $(1)/usr/sbin/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/minibox-scan-diag $(1)/usr/sbin/
-	$(CP) ./files/* $(1)/
+
+	$(INSTALL_DIR) $(1)/etc/init.d
+	$(INSTALL_BIN) ./files/etc/init.d/minibox-printerd $(1)/etc/init.d/
+	$(INSTALL_BIN) ./files/etc/init.d/minibox-scand $(1)/etc/init.d/
+	$(INSTALL_BIN) ./files/etc/init.d/minibox-discoveryd $(1)/etc/init.d/
+
+	$(INSTALL_DIR) $(1)/etc/minibox/services.d
+	$(INSTALL_CONF) ./files/etc/minibox/services.d/ipp-printer.service $(1)/etc/minibox/services.d/
+	$(INSTALL_CONF) ./files/etc/minibox/services.d/scanner.service $(1)/etc/minibox/services.d/
+
+	$(INSTALL_DIR) $(1)/usr/libexec/minibox-mfp
+	$(CP) ./files/usr/libexec/minibox-mfp/* $(1)/usr/libexec/minibox-mfp/
 endef
 
 $(eval $(call BuildPackage,minibox-mfp))
