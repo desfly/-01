@@ -8,4 +8,6 @@ cc -std=c99 -Wall -Wextra -Werror -pedantic src/minibox-escl/escl.c tests/test-e
 /tmp/test-escl
 cc -std=c99 -Wall -Wextra -Werror -pedantic src/minibox-scan/soapht_transport.c tests/test-soapht-transport.c -o /tmp/test-soapht
 /tmp/test-soapht
+cc -std=c99 -Wall -Wextra -Werror -pedantic src/minibox-scand/scan_session.c tests/test-scan-session.c -o /tmp/test-scan-session
+/tmp/test-scan-session
 echo 'MFP core contract OK'
