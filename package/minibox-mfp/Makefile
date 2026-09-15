@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=minibox-mfp
 PKG_VERSION:=0.3.0
-PKG_RELEASE:=3
+PKG_RELEASE:=4
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -40,7 +40,12 @@ define Build/Compile
 		$(PKG_BUILD_DIR)/minibox-scand/main.c \
 		$(PKG_BUILD_DIR)/minibox-scand/scan_session.c \
 		$(PKG_BUILD_DIR)/minibox-scand/scan_backend.c \
-		$(PKG_BUILD_DIR)/minibox-escl/escl.c
+		$(PKG_BUILD_DIR)/minibox-scand/m1522_backend.c \
+		$(PKG_BUILD_DIR)/minibox-escl/escl.c \
+		$(PKG_BUILD_DIR)/minibox-scan/soapht_transport.c \
+		$(PKG_BUILD_DIR)/minibox-scan/soapht_m1522_io.c \
+		$(PKG_BUILD_DIR)/minibox-scan/soapht_codec.c \
+		$(PKG_BUILD_DIR)/minibox-usb/scan_m1522.c -lusb-1.0
 	$(MB_CC) -o $(PKG_BUILD_DIR)/minibox-discoveryd \
 		$(PKG_BUILD_DIR)/minibox-discoveryd/main.c \
 		$(PKG_BUILD_DIR)/minibox-discoveryd/service.c \
