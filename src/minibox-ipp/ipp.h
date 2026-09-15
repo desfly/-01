@@ -8,4 +8,5 @@ int ipp_parse_header(const unsigned char *buf,size_t len,struct ipp_request *r);
 int ipp_document_offset(const unsigned char *buf,size_t len,size_t *offset);
 const char *ipp_operation_name(uint16_t op);
 size_t ipp_build_status(unsigned char *out,size_t cap,const struct ipp_request *r,uint16_t status);
+size_t ipp_build_printer_attributes(unsigned char *out,size_t cap,const struct ipp_request *r,const char *printer_uri);
 #endif
