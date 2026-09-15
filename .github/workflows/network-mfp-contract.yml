@@ -2,7 +2,7 @@ name: MiniBox network MFP contract
 
 on:
   push:
-    branches: [main, minibox-network-mfp-discovery-v2]
+    branches: [main, minibox-network-mfp-discovery-v2, minibox-network-mfp-runtime-v2]
   pull_request:
   workflow_dispatch:
 
@@ -19,6 +19,8 @@ jobs:
             -o /tmp/test-discovery-service
       - name: Validate IPP and eSCL records
         run: /tmp/test-discovery-service
+      - name: Validate runtime service loading
+        run: sh tests/test-discovery-runtime.sh
       - name: Enforce no-usblp/no-CUPS product rule
         run: |
           set -euo pipefail
