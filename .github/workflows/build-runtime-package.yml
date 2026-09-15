@@ -31,13 +31,11 @@ jobs:
         run: |
           set -euo pipefail
           BASE='https://downloads.openwrt.org/releases/25.12.5/targets/ath79/generic'
-          curl -fsSL "$BASE/sha256sums" -o sha256sums
-          SDK_FILE="$(awk '{print $2}' sha256sums | grep -E '^openwrt-sdk-25\.12\.5-ath79-generic_gcc-.*_musl\.Linux-x86_64\.tar\.zst$' | head -n1)"
-          test -n "$SDK_FILE"
+          SDK_FILE='openwrt-sdk-25.12.5-ath79-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst'
+          SDK_SHA256='bc4307ae2065c0c0b7c84627356e9f3d368a5a803c81552fcb77aa034a843f5a'
           echo "SDK_FILE=$SDK_FILE" >> "$GITHUB_ENV"
-          grep "  $SDK_FILE$" sha256sums > sdk.sha256
           curl -fL --retry 4 "$BASE/$SDK_FILE" -o "$SDK_FILE"
-          sha256sum -c sdk.sha256
+          echo "$SDK_SHA256  $SDK_FILE" | sha256sum -c -
           mkdir sdk
           tar --zstd -xf "$SDK_FILE" -C sdk --strip-components=1
 
